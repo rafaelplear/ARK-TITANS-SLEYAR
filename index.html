@@ -315,27 +315,79 @@ padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle;}
   </div>
 </div>
 
+<!-- FIREBASE SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
 <script>
+/* ============================================================
+   CONFIGURAÇÃO DO FIREBASE
+   Substitua os valores abaixo pelos dados do SEU projeto.
+   (Firebase Console > Configurações do projeto > Seus apps > Web)
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyC4Ya6ONwNGr7Umw2kcUScN2G6R_7_dkCg",
+  authDomain: "titans-sleyar.firebaseapp.com",
+  databaseURL: "https://titans-sleyar-default-rtdb.firebaseio.com",
+  projectId: "titans-sleyar",
+  storageBucket: "titans-sleyar.firebasestorage.app"
+};
+
+/* E-mail do usuário admin criado em Authentication > Users.
+   A SENHA do admin no site passa a ser a senha desse usuário. */
+const ADMIN_EMAIL = "brenorafaferreira@gmail.com";
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
 /* === DADOS === */
 let adminLogado = false;
 let acaoAtual = '';
 let gerenciarTipo = '';
 let gerenciarAcao = '';
 
-let tribos = JSON.parse(localStorage.getItem('tribos')) || [];
-let eventos = JSON.parse(localStorage.getItem('eventos')) || [];
-let noticias = JSON.parse(localStorage.getItem('noticias')) || [];
+let tribos = [];
+let eventos = [];
+let noticias = [];
 
-tribos = tribos.map(t => {
-  if(!t.membros_lista) t.membros_lista = [];
-  t.membros_lista = t.membros_lista.map(m => typeof m === 'string' ? {nome:m, pontos:0} : {nome:m.nome, pontos:m.pontos||0});
-  return t;
+/* Converte snapshot do Firebase (que pode virar objeto em vez de array) para array */
+function toArray(val){
+  if(!val) return [];
+  return Array.isArray(val) ? val : Object.values(val);
+}
+
+/* Garante que cada membro tenha {nome, pontos} mesmo em dados antigos */
+function corrigirTribos(lista){
+  return toArray(lista).map(t => {
+    if(!t.membros_lista) t.membros_lista = [];
+    t.membros_lista = toArray(t.membros_lista).map(m =>
+      typeof m === 'string' ? {nome:m, pontos:0} : {nome:m.nome, pontos:m.pontos||0}
+    );
+    return t;
+  });
+}
+
+/* === SINCRONIZAÇÃO EM TEMPO REAL COM O FIREBASE === */
+db.ref('tribos').on('value', snap => {
+  tribos = corrigirTribos(snap.val());
+  renderizarTribos();
+});
+db.ref('eventos').on('value', snap => {
+  eventos = toArray(snap.val());
+  renderizarEventos();
+});
+db.ref('noticias').on('value', snap => {
+  noticias = toArray(snap.val());
+  renderizarNoticias();
 });
 
+/* Salva os dados atuais no Firebase (visível em todos os dispositivos) */
 function salvarDados(){
-  localStorage.setItem('tribos', JSON.stringify(tribos));
-  localStorage.setItem('eventos', JSON.stringify(eventos));
-  localStorage.setItem('noticias', JSON.stringify(noticias));
+  db.ref('tribos').set(tribos);
+  db.ref('eventos').set(eventos);
+  db.ref('noticias').set(noticias);
 }
 
 /* === ABAS === */
@@ -369,14 +421,29 @@ function abrirAdmin(){
   setTimeout(() => document.getElementById('campoSenha').focus(), 100);
 }
 function verificarSenha(){
-  if(document.getElementById('campoSenha').value !== '3040'){
-    msg('senhaMsg','Senha incorreta!','erro'); return;
-  }
-  adminLogado = true;
-  fecharModal('senhaOverlay');
-  abrirModal('painelOverlay');
+  const senha = document.getElementById('campoSenha').value;
+  if(!senha){ msg('senhaMsg','Digite a senha.','erro'); return; }
+  auth.signInWithEmailAndPassword(ADMIN_EMAIL, senha)
+    .then(() => {
+      adminLogado = true;
+      fecharModal('senhaOverlay');
+      abrirModal('painelOverlay');
+      renderizarEventos(); renderizarNoticias();
+    })
+    .catch(() => { msg('senhaMsg','Senha incorreta!','erro'); });
 }
-function logout(){ adminLogado = false; fecharModal('painelOverlay'); }
+function logout(){
+  adminLogado = false;
+  auth.signOut();
+  fecharModal('painelOverlay');
+  renderizarEventos(); renderizarNoticias();
+}
+
+/* Mantém o admin logado entre recarregamentos da página */
+auth.onAuthStateChanged(user => {
+  adminLogado = !!user;
+  renderizarEventos(); renderizarNoticias();
+});
 
 /* === TRIBO === */
 function adicionarTribo(){
@@ -687,10 +754,11 @@ function removerItemDireto(tipo, idx){
   if(tipo==='evento') renderizarEventos(); else renderizarNoticias();
 }
 
-/* === INICIAR === */
-renderizarTribos();
-renderizarEventos();
-renderizarNoticias();
+/* === INICIAR ===
+   Não é necessário chamar renderizarTribos/Eventos/Noticias aqui:
+   os listeners db.ref(...).on('value', ...) já renderizam
+   automaticamente quando os dados chegam do Firebase. */
+
 </script>
 </body>
 </html>
